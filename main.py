@@ -29,7 +29,7 @@ class ConstructionSiteSystem:
 
         # 2. 初始化各個模組
         try:
-            self.cam = CameraDriver(camera_id=0)
+            self.cam = CameraDriver(camera_id=0, width=640, height=480)
             self.ai = LPRSystem()
             self.scale = ScaleDriver(simulate=True) # 開發階段預設開啟模擬
             self.db = DatabaseManager()
