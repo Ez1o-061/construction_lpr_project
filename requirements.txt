@@ -1,0 +1,23 @@
+# --- Core AI & Computer Vision ---
+# 用於影像處理與顯示 (GUI 版本)
+opencv-python
+
+# YOLOv8 物件偵測模型
+# 注意: 在 Jetson 上，建議先確認已安裝支援 GPU 的 PyTorch (JetPack)
+ultralytics
+
+# --- PaddleOCR  ---
+paddlepaddle==2.6.2
+paddleocr==2.7.3
+
+# --- Critical Dependencies  ---
+# 強制鎖定舊版 Numpy 與 Protobuf 以確保 Paddle 相容性
+numpy==1.24.3
+protobuf==3.20.3
+
+# --- Hardware & System ---
+# 用於讀取地磅訊號 (RS232/USB)
+pyserial
+
+# OCR 幾何運算依賴 (PaddleOCR 的隱藏需求)
+shapely
