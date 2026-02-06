@@ -1,91 +1,100 @@
 import cv2
+import re
 import logging
-import numpy as np
-import urllib.request
 from ultralytics import YOLO
 from paddleocr import PaddleOCR
 
-# 抑制 PaddleOCR 的除錯日誌
+# 關閉 PaddleOCR 的囉嗦日誌
 logging.getLogger("ppocr").setLevel(logging.ERROR)
 
 class LPRSystem:
-    def __init__(self, yolo_path='yolov8n.pt'):
-        """
-        初始化車牌辨識系統 (YOLOv8 + PaddleOCR)
-        Args:
-            yolo_path (str): YOLO 模型路徑
-        """
-        print("[AI] Loading YOLO model (GPU)...")
-        self.detector = YOLO(yolo_path)
+    def __init__(self, model_path='models/license_plate_y8x_best.engine'):
+        print(f"[AI] 正在載入 YOLO 模型: {model_path} ...")
+        # 這裡會自動使用 TensorRT 引擎加速
+        self.detector = YOLO(model_path, task='detect')
         
-        print("[AI] Loading PaddleOCR engine (CPU)...")
-        self.ocr = PaddleOCR(use_textline_orientation=True, lang='en')
+        print("[AI] 正在啟動 PaddleOCR (英文模式)...")
+        # use_angle_cls=False 可以加速，因為車牌通常是水平的
+        self.ocr = PaddleOCR(use_angle_cls=False, lang='en', show_log=False)
+
+    def validate_license_plate(self, raw_text):
+        """
+        過濾雜訊，只回傳符合台灣車牌格式的字串
+        """
+        if not raw_text: return False, ""
         
-        # 設定目標類別 (2=car, 5=bus, 7=truck)
-        self.target_classes = [2, 5, 7]
+        # 1. 強制轉大寫並移除所有非英數符號
+        clean_text = re.sub(r'[^A-Z0-9]', '', raw_text.upper())
+        
+        if not clean_text: return False, ""
+
+        # 2. 定義台灣常見車牌格式
+        rules = [
+            r'^[0-9]{3}[A-Z]{2}$',         # 123-AB (舊式)
+            r'^[A-Z]{3}[0-9]{4}$',         # ABC-1234 (新式汽車)
+            r'^[A-Z]{3}[0-9]{3}$',         # ABC-123 (舊式機車)
+            r'^[0-9]{2}[A-Z]{1}[0-9]{1}$', # 22-A-1 (特殊)
+            r'^[A-Z]{1,2}[0-9]{3,4}$',     # 寬鬆規則
+            r'^[A-Z]{2}[0-9]{3,4}$'        # 營業車
+        ]
+
+        # 3. 比對規則
+        for pattern in rules:
+            if re.match(pattern, clean_text):
+                return True, clean_text
+        
+        return False, clean_text # 雖然有字，但不像車牌
 
     def process_frame(self, frame):
         """
-        處理影像進行車輛偵測與車牌辨識
-        Returns:
-            tuple: (標記後的影像, 辨識到的文字或None)
+        輸入: 影像
+        輸出: 畫好框的圖, 辨識到的車牌文字(如果有的話)
         """
-        # 1. YOLO 物件偵測
-        results = self.detector(frame, verbose=False, conf=0.5)
-        detections = results[0]
+        # YOLO 推論 (conf=0.4 過濾掉低信心度的框)
+        results = self.detector(frame, verbose=False, conf=0.4, imgsz=640)
         
-        has_vehicle = False
-        plate_text = None
-        
-        # 檢查是否偵測到車輛
-        for box in detections.boxes:
-            if int(box.cls[0]) in self.target_classes:
-                has_vehicle = True
-                break
-        
-        # 2. 若有車，執行 OCR
-        if has_vehicle:
-            # 針對全圖進行 OCR
-            ocr_results = self.ocr.ocr(frame, cls=False)
-            
-            if ocr_results and ocr_results[0]:
-                # 取出信心度最高的結果
-                best_match = max(ocr_results[0], key=lambda x: x[1][1])
-                text, conf = best_match[1]
+        annotated_frame = frame.copy()
+        best_plate_text = None
+
+        for result in results:
+            boxes = result.boxes
+            for box in boxes:
+                # 取得座標
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
                 
-                # 過濾短雜訊 (車牌通常長度 > 4)
-                if len(text) > 4:
-                    plate_text = text
+                # 裁切車牌圖片 (ROI)
+                h, w, _ = frame.shape
+                # 確保座標不超出畫面
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(w, x2), min(h, y2)
+                
+                plate_roi = frame[y1:y2, x1:x2]
+                
+                if plate_roi.size == 0: continue
 
-        # 繪製 YOLO 偵測框
-        annotated_frame = detections.plot()
-        
-        return annotated_frame, plate_text
+                # 送進 OCR 辨識
+                ocr_results = self.ocr.ocr(plate_roi, cls=False)
+                
+                label_text = "Analyzing..."
+                color = (0, 100, 255) # 橘色 (偵測到但未讀出)
 
-# --- 測試區塊 ---
-if __name__ == "__main__":
-    print("[Test] Running AI module self-check...")
-    
-    # 下載測試圖 (巴士)
-    url = 'https://ultralytics.com/images/bus.jpg'
-    print(f"[Test] Downloading image: {url}")
-    try:
-        req = urllib.request.urlopen(url)
-        arr = np.asarray(bytearray(req.read()), dtype=np.uint8)
-        img = cv2.imdecode(arr, -1)
-        
-        # 初始化系統
-        lpr = LPRSystem()
-        
-        # 執行辨識
-        result_img, text = lpr.process_frame(img)
-        print(f"[Test] Detection Result: {text}")
-        print("[Test] Module is working correctly.")
-        
-        # 顯示結果 (按 q 離開)
-        cv2.imshow("AI Module Test", result_img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        
-    except Exception as e:
-        print(f"[Test] Error: {e}")
+                if ocr_results and ocr_results[0]:
+                    # 抓出信心度最高的結果
+                    # PaddleOCR 回傳格式: [[[[x,y],..], ('text', conf)], ...]
+                    res = max(ocr_results[0], key=lambda x: x[1][1])
+                    raw_text = res[1][0]
+                    
+                    # 驗證格式
+                    is_valid, clean_text = self.validate_license_plate(raw_text)
+                    
+                    if is_valid:
+                        label_text = clean_text
+                        color = (0, 255, 0) # 綠色 (成功!)
+                        best_plate_text = clean_text
+
+                # 畫框與文字
+                cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+                cv2.putText(annotated_frame, label_text, (x1, y1 - 10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+
+        return annotated_frame, best_plate_text
