@@ -1,129 +1,89 @@
 import cv2
+import threading
+import queue
 import time
-import os
-import logging
-from datetime import datetime
-
-# 匯入自定義模組
 from modules.camera import CameraDriver
 from modules.lpr_ai import LPRSystem
-from modules.scale import ScaleDriver
-from modules.database import DatabaseManager
+# 先註解掉還沒寫好的部分，確保今天能先跑起來
+# from modules.scale import ScaleDriver 
+# from modules.database import DatabaseManager
 
-class ConstructionSiteSystem:
-    def __init__(self):
-        """
-        初始化工地自動化管理系統
-        負責整合相機、AI 辨識、地磅與資料庫模組。
-        """
-        print("=== Initializing Construction Site System ===")
-        
-        # 1. 系統參數設定 (Configuration)
-        self.save_dir = "runs/records"
-        self.save_cooldown = 5.0  # 相同車輛存檔冷卻時間 (秒)
-        self.last_save_time = 0
-        self.last_plate = ""
-        
-        # 確保儲存目錄存在
-        os.makedirs(self.save_dir, exist_ok=True)
+# 建立兩個佇列 (Queue) 用來在執行緒間傳遞資料
+frame_queue = queue.Queue(maxsize=1)  # 放原始圖片
+result_queue = queue.Queue(maxsize=1) # 放 AI 處理結果
 
-        # 2. 初始化各個模組
+def ai_worker():
+    """
+    這是 AI 的背景工作區，它會在後台默默一直跑
+    """
+    print("[Thread] AI 執行緒啟動...")
+    # 載入 AI 模型 (這會花幾秒鐘)
+    ai_system = LPRSystem(model_path='best.engine')
+    
+    while True:
+        # 從佇列拿圖片
         try:
-            self.cam = CameraDriver(camera_id=0, width=640, height=480)
-            self.ai = LPRSystem()
-            self.scale = ScaleDriver(simulate=True) # 開發階段預設開啟模擬
-            self.db = DatabaseManager()
-            print("[System] All modules initialized successfully.")
-        except Exception as e:
-            print(f"[System] Critical Error during initialization: {e}")
-            exit(1)
+            frame = frame_queue.get(timeout=1) # 等待圖片
+        except queue.Empty:
+            continue
 
-    def run(self):
-        """
-        系統主迴圈
-        流程: 影像擷取 -> AI 辨識 -> 地磅讀取 -> 邏輯判斷 -> 存檔 -> 顯示
-        """
-        print("[System] System started. Press 'q' to exit.")
+        # 進行辨識
+        annotated_frame, plate_text = ai_system.process_frame(frame)
         
-        try:
-            while True:
-                # A. 影像擷取
-                frame = self.cam.get_frame()
-                if frame is None:
-                    print("[System] Video stream lost.")
-                    break
+        # 把結果丟出去
+        if result_queue.full():
+            result_queue.get() # 如果滿了就丟掉舊的
+        result_queue.put((annotated_frame, plate_text))
 
-                # B. AI 推論 (偵測車輛與車牌)
-                annotated_frame, plate_text = self.ai.process_frame(frame)
-                
-                # C. 讀取地磅重量
-                weight = self.scale.get_weight()
+def main():
+    # 1. 啟動攝影機
+    cap = cv2.VideoCapture(0) # 如果是 USB 相機用 0，CSI 相機可能要用 Gstreamer 字串
+    if not cap.isOpened():
+        print("無法開啟攝影機！")
+        return
 
-                # D. 顯示資訊介面 (UI Overlay)
-                self._draw_ui(annotated_frame, weight, plate_text)
+    # 2. 啟動 AI 背景執行緒
+    t = threading.Thread(target=ai_worker)
+    t.daemon = True # 設定為守護執行緒，主程式關閉時它會跟著關
+    t.start()
 
-                # E. 存檔邏輯 (自動化紀錄)
-                # 條件: 1.有偵測到車牌 2.冷卻時間已過 (避免重複寫入)
-                current_time = time.time()
-                if plate_text:
-                    if (current_time - self.last_save_time > self.save_cooldown) or (plate_text != self.last_plate):
-                        self.save_event(plate_text, weight, frame)
-                        self.last_save_time = current_time
-                        self.last_plate = plate_text
+    print("[System] 系統啟動中...按 'Q' 離開")
+    
+    current_display = None # 目前要顯示的畫面
+    last_plate = "Waiting..."
 
-                # F. 畫面更新
-                cv2.imshow("Site Monitor System", annotated_frame)
+    while True:
+        ret, frame = cap.read()
+        if not ret: break
 
-                # 按 'q' 離開
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    print("[System] Shutdown signal received.")
-                    break
-                    
-        except KeyboardInterrupt:
-            print("[System] Interrupted by user.")
-        except Exception as e:
-            print(f"[System] Runtime Error: {e}")
-        finally:
-            self.close()
+        # 降低解析度以提升速度 (選用)
+        # frame = cv2.resize(frame, (640, 480))
 
-    def _draw_ui(self, frame, weight, plate_text):
-        """繪製螢幕資訊"""
-        # 顯示重量
-        weight_text = f"Weight: {weight:.1f} kg"
-        cv2.putText(frame, weight_text, (20, 40), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-        
-        # 若有偵測到車牌，顯示車牌號碼
-        if plate_text:
-            plate_info = f"Plate: {plate_text}"
-            cv2.putText(frame, plate_info, (20, 80), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        # 把最新的畫面丟給 AI (如果 AI 現在有空的話)
+        if not frame_queue.full():
+            frame_queue.put(frame)
 
-    def save_event(self, plate, weight, frame):
-        """
-        觸發存檔流程: 存圖 + 寫入資料庫
-        """
-        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{timestamp_str}_{plate}.jpg"
-        filepath = os.path.join(self.save_dir, filename)
-        
-        # 1. 儲存圖片
-        cv2.imwrite(filepath, frame)
-        
-        # 2. 寫入資料庫
-        self.db.save_record(plate, weight, filepath)
-        
-        print(f"[Event] Logged: Plate={plate}, Weight={weight}kg, File={filename}")
+        # 檢查有沒有新的 AI 結果
+        if not result_queue.empty():
+            current_display, detected_text = result_queue.get()
+            if detected_text:
+                last_plate = detected_text
+                print(f"辨識到車牌: {last_plate}")
 
-    def close(self):
-        """安全釋放所有資源"""
-        print("=== Shutting Down System ===")
-        if hasattr(self, 'cam'): self.cam.release()
-        if hasattr(self, 'scale'): self.scale.close()
-        if hasattr(self, 'db'): self.db.close()
-        cv2.destroyAllWindows()
-        print("[System] Goodbye.")
+        # 如果還沒有 AI 結果，就顯示原始畫面
+        final_img = current_display if current_display is not None else frame
+
+        # 在畫面上印出最新資訊
+        cv2.putText(final_img, f"Last Plate: {last_plate}", (10, 50), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+
+        cv2.imshow("Jetson LPR System", final_img)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    app = ConstructionSiteSystem()
-    app.run()
+    main()

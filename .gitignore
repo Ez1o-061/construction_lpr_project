@@ -2,8 +2,8 @@ __pycache__/
 *.pyc
 *.pt
 *.onnx
+*.engine
+
 runs/
-.DS_Store
-.vscode/
-data.db
-*.db
+*.csv
+*.jpg
