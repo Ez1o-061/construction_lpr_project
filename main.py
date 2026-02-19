@@ -1,8 +1,8 @@
 import Jetson.GPIO as GPIO
 import cv2
 import os
-from button import Button
-from detect_license_plate import Detect_License_Plate
+from modules.button import Button
+from system_controller import SystemController
 
 from mainprocess import MainProcess
 
@@ -30,7 +30,8 @@ if __name__ == "__main__":
     q = Queue(maxsize=5)
 
     #創建一個process執行偵測車牌
-    main_process = MainProcess(q,"laptop.engine")
+    main_process = MainProcess(q,"best.engine")
+    main_process.start()
 
     #license和show功能切換的按鈕
     license_show_switch = Button(15) 
