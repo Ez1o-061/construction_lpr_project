@@ -44,7 +44,7 @@ class Camera:
                 else:
                     with self._lock:
                         self._new_frame = frame
-
+		    time.sleep(0.01)
         except Exception as e:
             print(f"[Camera]: {e}")
             

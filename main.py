@@ -30,7 +30,7 @@ if __name__ == "__main__":
 
     # 2. 建立並「啟動」你的 SystemController 子進程
     # 注意：這裡的 model_path 記得確認實際路徑
-    main_process = SystemController(q, model_path="laptop.engine")
+    main_process = SystemController(q, model_path="best.engine")
     main_process.start() # [修正] 補上啟動指令
     print("[System] AI 子進程已啟動")
 
