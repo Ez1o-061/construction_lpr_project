@@ -2,6 +2,7 @@ import cv2
 import threading
 from queue import Queue, Empty,Full
 import atexit
+import time # [修正] 補上匯入 time 模組
 
 class Camera:
     def __init__(self, width=1280, height=720,src=0):

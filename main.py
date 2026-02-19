@@ -4,7 +4,7 @@ from multiprocessing import Queue
 import queue
 import time
 
-from button import Button
+from modules.button import Button
 # 替換成你寫好的控制器
 from system_controller import SystemController
 
