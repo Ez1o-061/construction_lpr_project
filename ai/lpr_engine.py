@@ -1,11 +1,9 @@
-
 from ultralytics import YOLO
 import cv2
-from paddleocr import PaddleOCR
 import gc
 import atexit
 
-from ocrprocess import OCRProcess
+from .ocrprocess import OCRProcess
 
 class Detect_License_Plate:
 
@@ -15,7 +13,6 @@ class Detect_License_Plate:
             text_detection_model_dir = None, 
             text_recognition_model_dir = None 
             ):
-
 
         #兩個ai模型
         self._ocr = None
@@ -40,7 +37,8 @@ class Detect_License_Plate:
         atexit.register(self.cleanup)
 
     def run(self, frame):
-
+        # === 修改 1：新增變數儲存最終車牌文字 ===
+        best_plate = None 
 
         try:
             # YOLO 偵測
@@ -50,21 +48,31 @@ class Detect_License_Plate:
                 for box in result.boxes.xyxy:
                     x1, y1, x2, y2 = map(int, box)
                     
-                    # 畫框 (偵測到車牌)
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    
                     # 擷取車牌區域進行 OCR
                     roi = frame[y1:y2+1, x1:x2+1]
 
-                    #進行ocr
+                    # 進行 ocr
                     if roi.size > 0:
-                        # 呼叫 OCR
-                        ocr_result = self._ocr.run(roi)
+                        # 呼叫 OCR，同事的 ocrprocess 會回傳一個裝有合法車牌的 list
+                        ocr_results = self._ocr.run(roi)
+                        
+                        # === 修改 2：取出車牌並畫上文字與框線 ===
+                        if ocr_results and len(ocr_results) > 0:
+                            best_plate = ocr_results[0] # 抓取第一筆通過正則驗證的車牌
+                            
+                            # 畫框 (偵測到車牌)
+                            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            # 畫上辨識出的車牌文字
+                            cv2.putText(frame, best_plate, (x1, y1 - 10), 
+                                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             
-            return frame
+            # === 修改 3：同時回傳影像與車牌文字 ===
+            return frame, best_plate
 
         except Exception as e:
-            return frame # 發生錯誤仍回傳原圖，保證系統不中斷
+            print(f"[Detect_License_Plate] 執行錯誤: {e}")
+            # 發生錯誤仍回傳原圖與 None，保證系統不中斷
+            return frame, None 
 
  
     def cleanup(self):
@@ -82,26 +90,27 @@ class Detect_License_Plate:
         except Exception as e:
             print(f"[ALPR] 釋放資源時發生錯誤: {e}")
 
-
-#出錯直接raise
-
-
+# 單元測試區塊
 if __name__ =="__main__":
-    from  camera import Camera
+    import sys
+    import os
+    # 將上層目錄加入 path 以便測試時能找到 modules.camera
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from modules.camera import Camera
+    
     cam = Camera()
-    test = Detect_License_Plate("./model/license_plate_y11x_best.pt")
+    test = Detect_License_Plate("../models/best.engine") # 記得換成你的測試模型路徑
+    
     while(1):
         frame = cam.get()
         if frame is not None:
-            temp = test.run(frame)
-        cv2.imshow("test",temp)
+            # 使用兩個變數接收
+            temp_frame, text = test.run(frame)
+            if text:
+                print(f"[Test] 偵測到車牌: {text}")
+            cv2.imshow("test", temp_frame)
+            
         if cv2.waitKey(1) & 0xFF == ord('q'):
             cv2.destroyAllWindows()
             cam.cleanup()
             break
-
-    
-
-
-
-
