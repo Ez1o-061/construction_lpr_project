@@ -1,48 +1,83 @@
 import Jetson.GPIO as GPIO
+import atexit
 
 class Button:
-    def __init__(self, pin, default_mode="DETECTION", pull_type=GPIO.PUD_DOWN, bouncetime=300):
-        """
-        功能切換按鈕
-        Pin 被按下時，自動在 "DETECTION" 與 "CAMERA_ONLY" 模式間切換
-        """
-        self.pin = pin
-        self._mode = default_mode
+
+    def __init__(self, pin, pull_type=GPIO.PUD_OFF, bouncetime=300):
+
+        try:
+            #使用者需要的資訊
+            self._push = False #按鈕有沒有被按下
+
+            #other
+            self._success_set_pin = False  #按鈕有沒有被系統成功創建
+
+            #設定按鈕pin，等參數
+            self.pin = pin
+            self.bouncetime = bouncetime
+            self._edge = None
+
+            #創建按鈕
+            try:
+                GPIO.setmode(GPIO.BCM)
+                GPIO.setup(self.pin, GPIO.IN, pull_up_down=pull_type)
+                self._success_set_pin = True
+                print("[Button] 系統創建按鈕成功")
+            except Exception as e: 
+                self._success_set_pin = False
+                print(f"[Button] 系統創建按鈕失敗{e}")
+
+            if pull_type == GPIO.PUD_DOWN:
+                self._edge = GPIO.RISING
+            elif pull_type == GPIO.PUD_OFF:
+                self._edge = GPIO.FALLING
+            else:
+                self._edge = GPIO.FALLING
+
+            # 註冊自己這個 pin 的 cleanup
+            atexit.register(self.cleanup)
+
+            #call back
+            GPIO.add_event_detect(self.pin, self._edge, callback=self._internal_callback, bouncetime=bouncetime)
+
+        except Exception as e:
+            if self._success_set_pin:
+                self.cleanup()
+            print(f"button錯誤: {e}")
+            raise
         
-        # 設定 GPIO 模式 (BCM 編號)
-        # 注意: 若主程式已設定過 setmode，這裡重複設定通常無害，但確保模組獨立性
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setup(self.pin, GPIO.IN, pull_up_down=pull_type)
+    def _internal_callback(self, self_pin): 
+        self._push = True
 
-        # 判斷觸發邊緣 (Edge)
-        if pull_type == GPIO.PUD_DOWN:
-            edge = GPIO.RISING  # 下拉電阻 -> 按下時變高電位
-        else:
-            edge = GPIO.FALLING # 上拉電阻 -> 按下時變低電位
 
-        # 註冊事件偵測
-        try:
-            GPIO.add_event_detect(self.pin, edge, callback=self._button_callback, bouncetime=bouncetime)
-            print(f"[Button] Initialized on Pin {pin} (Mode Switch)")
-        except Exception as e:
-            print(f"[Button] Init Error on Pin {pin}: {e}")
-
-    def _button_callback(self, channel):
-        """內部的回呼函式，負責切換狀態"""
-        if self._mode == "DETECTION":
-            self._mode = "CAMERA_ONLY"
-        else:
-            self._mode = "DETECTION"
-        print(f"[Button] Mode switched to: {self._mode}")
-
-    def get_mode(self):
-        """讓主程式讀取當前模式"""
-        return self._mode
-    
     def cleanup(self):
-        """釋放 GPIO 資源"""
-        try:
+        """只釋放這個物件的 pin"""
+        if self._success_set_pin:
             GPIO.cleanup(self.pin)
-            print(f"[Button] Pin {self.pin} cleaned up")
-        except Exception as e:
-            print(f"[Button] Cleanup warning: {e}")
+            print(f"[Button] Pin {self.pin} 已清理")
+
+
+    # 得知按鈕是否曾被按下
+
+    def get_push(self):
+        re = self._push
+        return re
+    
+    #使用者知道按鈕被按下，就呼叫，讓狀態變沒被按下
+    def know(self):
+        self._push = False
+
+
+if __name__=="__main__":
+    test_btn = Button(18) #BCM
+    while(1):
+        if test_btn.get_push() :
+            print("button 被按下")
+            test_btn.know()
+            print("已接收btn被按下")
+
+
+#優化加上getMode
+
+
+    

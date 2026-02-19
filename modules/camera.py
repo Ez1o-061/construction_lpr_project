@@ -1,58 +1,87 @@
 import cv2
+import threading
+from queue import Queue, Empty,Full
+import atexit
 
-class CameraDriver:
-    def __init__(self, camera_id=0, width=1280, height=720):
-        """
-        初始化 USB 攝影機驅動
-        Args:
-            camera_id (int): 攝影機 ID，通常為 0
-            width (int): 解析度寬度
-            height (int): 解析度高度
-        """
-        self.camera_id = camera_id
-        self.cap = cv2.VideoCapture(camera_id)
+class Camera:
+    def __init__(self, width=1280, height=720,src=0):
+
+        self._cap = cv2.VideoCapture(src)
+
+        if not self._cap.isOpened():
+            print(f"[Camera] Error: Could not open camera ID {src}")
+            raise RuntimeError("[Camera]: can't open camera")
+        else:
+            print(f"[Camera] Initialized successfully (ID: {src})")
         
         # 設定解析度
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
+        # 註冊自己的 cleanup
+        atexit.register(self._InterCleanup)
+
+        self._new_frame = None
+
+        self._lock = threading.Lock() 
+
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(
+            target=self._loop,
+            daemon=True
+        )
+        self._thread.start()
+
+    # ========================
+    # private: thread loop
+    # ========================
+    def _loop(self):
+        try: 
+            while not self._stop_event.is_set():
+                ret, frame = self._cap.read()
+                if not ret:
+                    print("[Camera]:Camera read failed continue")
+                else:
+                    with self._lock:
+                        self._new_frame = frame
+
+        except Exception as e:
+            print(f"[Camera]: {e}")
+            
+
+    # ========================
+    # public API
+    # ========================
+    def get(self):
+        with self._lock:
+            return self._new_frame
+
+
+    def _InterCleanup(self): #強制退出
+        if self._cap.isOpened():
+            self._cap.release()
+        print("[Camera] 成功釋放")
+
+    def cleanup(self): #使用者退出
+        """
+        請求停止 camera thread
+        等待釋放資源
+        """
+        self._stop_event.set()
+        self._thread.join()
+
+
+if __name__ == "__main__" :
+    test_cm = Camera()
+    while(1):
+        frame = test_cm.get()
+        if frame is not None: 
+            cv2.imshow("test", frame)
+        if cv2.waitKey(1) & 0xFF == 27:
+            test_cm.cleanup()
+            cv2.destroyAllWindows()
+            break
         
-        if not self.cap.isOpened():
-            print(f"[Camera] Error: Could not open camera ID {camera_id}")
-            self.is_running = False
-        else:
-            print(f"[Camera] Initialized successfully (ID: {camera_id})")
-            self.is_running = True
 
-    def get_frame(self):
-        """
-        擷取單張影像
-        Returns:
-            frame: OpenCV 影像物件，若讀取失敗回傳 None
-        """
-        if self.is_running:
-            ret, frame = self.cap.read()
-            if ret:
-                return frame
-            else:
-                print("[Camera] Warning: Failed to retrieve frame")
-        return None
-
-    def release(self):
-        """釋放攝影機資源"""
-        if self.cap.isOpened():
-            self.cap.release()
-            print("[Camera] Resource released")
-
-if __name__ == "__main__":
-    # 單元測試
-    cam = CameraDriver()
-    if cam.is_running:
-        print("[Test] Press 'q' to exit")
-        while True:
-            frame = cam.get_frame()
-            if frame is not None:
-                cv2.imshow("Camera Test", frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-        cam.release()
-        cv2.destroyAllWindows()
+#優化 加入sleep釋放cpu資源
+#如果cam創建失敗會直接raise
