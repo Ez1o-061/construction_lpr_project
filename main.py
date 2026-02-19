@@ -38,7 +38,7 @@ if __name__ == "__main__":
 
     #write_infromation = WriteInformation() #還未完成
 
-    th_btn = threading.Thread(listen_button, args = (target = license_show_switch, q))
+    th_btn = threading.Thread(target=listen_button, args=(license_show_switch, q), daemon=True)
     th_btn.start()
 
     while(1):
