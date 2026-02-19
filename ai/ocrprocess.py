@@ -102,13 +102,13 @@ class OCRProcess: #回傳陣列，所有通過測試可能是正確的車牌
         if result and result[0]:
             for line in result[0]:
                 # line[1][0] 就是辨識出的文字字串
-        	text = line[1][0] 
-        	unfail, plate, _ = self._validate_license_plate(text)
-        	if unfail:
-            	    store_plate.append(plate)
-		
-		# [修正] 必須把裝有車牌的陣列回傳出去！
-        	return store_plate
+                text = line[1][0] 
+                unfail, plate, _ = self._validate_license_plate(text)
+                if unfail:
+                    store_plate.append(plate)
+        
+        return store_plate
+
 # 使用範例
 if __name__ == "__main__":
     # 情況 A：使用預設
