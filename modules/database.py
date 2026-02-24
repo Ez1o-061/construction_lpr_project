@@ -35,28 +35,31 @@ class DatabaseManager:
         """
         寫入一筆新資料 (儲存圖片並寫入 CSV)
         """
-        # 1. 處理並儲存車牌圖片
-        now_ts = int(time.time())
-        img_filename = f"{plate}_{now_ts}.jpg"
-        img_absolute_path = os.path.join(self.img_dir, img_filename)
-        
-        # 儲存到實體硬碟
-        cv2.imwrite(img_absolute_path, frame)
-        
-        # CSV 裡面我們存相對路徑，這樣傳到 Windows/Linux 伺服器上看才不會路徑錯亂
-        relative_img_path = f"runs/images/{img_filename}"
-
-        # 2. 寫入 CSV 紀錄
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        row_data = [now_str, plate_status, plate, relative_img_path, scale_status, weight]
-        if self.enable_scale_img: row_data.append(scale_img if scale_img else "N/A")
-            
         try:
+            # 1. 處理並儲存車牌圖片
+            now_ts = int(time.time())
+            img_filename = f"{plate}_{now_ts}.jpg"
+            img_absolute_path = os.path.join(self.img_dir, img_filename)
+            
+            # 儲存到實體硬碟
+            cv2.imwrite(img_absolute_path, frame)
+            
+            # CSV 存相對路徑，這樣傳到 Windows/Linux 伺服器上看才不會路徑錯亂
+            relative_img_path = f"runs/images/{img_filename}"
+
+            # 2. 寫入 CSV 紀錄
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            row_data = [now_str, plate_status, plate, relative_img_path, scale_status, weight]
+            if self.enable_scale_img: 
+                row_data.append(scale_img if scale_img else "N/A")
+                
             with open(self.file_path, mode='a', newline='', encoding='utf-8-sig') as f:
                 writer = csv.writer(f)
                 writer.writerow(row_data)
+                
             print(f"[Database] 成功儲存照片並寫入紀錄: {plate} | {weight}kg")
             return True
+            
         except Exception as e:
             print(f"[Database] 寫入失敗: {e}")
             return False
