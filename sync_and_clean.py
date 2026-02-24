@@ -6,14 +6,18 @@ from modules.maintenance import DataMaintenance
 class SyncManager:
     def __init__(self):
         # === 伺服器端設定 (學校電腦 / Windows 測試機) ===
-        self.server_user = "User" 
-        self.server_hostname = "desktop-ez1o" # Tailscale MagicDNS
-        
+        #self.server_user = "User"
+        #self.server_hostname = "desktop-ez1o" # Tailscale MagicDNS
+        self.server_user = "aelab-1" 
+        self.server_hostname = "aelab-1-MS-7D18" # Tailscale MagicDNS
+	
         # 邊緣端 (Jetson) 資料夾路徑
         self.local_runs_dir = "/home/ez1o/Desktop/construction_lpr_project/runs"
         
-        # Windows 伺服器接收路徑 (確保 Windows 桌面有 Jetson_Data 資料夾，或讓系統自動建)
-        self.remote_dest_dir = f"{self.server_user}@{self.server_hostname}:C:/Jetson_Data/"
+        # Windows 伺服器接收路徑
+        #self.remote_dest_dir = f"{self.server_user}@{self.server_hostname}:C:/Jetson_Data/"
+	# Linux 伺服器接收路徑
+        self.remote_dest_dir = f"{self.server_user}@{self.server_hostname}:~/Desktop/Jetson_Data/"
 
         # 初始化清理模組
         self.cleaner = DataMaintenance(
